@@ -12,7 +12,7 @@ dataref("plane_heading", "sim/flightmodel/position/psi", "readonly")
 
 dataref( "view_type", "sim/graphics/view/view_type" )
 
-create_command( "FlyWithLua/VisualApprach/LookAtRnw", "Look at RNW",
+create_command( "FlyWithLua/VisualApproach/LookAtRnw", "Look at RNW",
                 "start_look_at()", "", "end_look_at()" )
 
 
