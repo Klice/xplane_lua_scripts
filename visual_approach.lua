@@ -1,11 +1,6 @@
 -- Visual Approach LUA Script
 -- Author: Maxim Cheusov cheusov@gmail.com
 
-
-dataref("local_x", "sim/flightmodel/position/local_x", "readonly")
-dataref("local_y", "sim/flightmodel/position/local_y", "readonly")
-dataref("local_z", "sim/flightmodel/position/local_z", "readonly")
-
 dataref("plane_pitch", "sim/flightmodel/position/theta", "readonly")
 dataref("plane_roll", "sim/flightmodel/position/phi", "readonly")
 dataref("plane_heading", "sim/flightmodel/position/psi", "readonly")
@@ -15,6 +10,9 @@ dataref( "view_type", "sim/graphics/view/view_type" )
 create_command( "FlyWithLua/VisualApproach/LookAtRnw", "Look at RNW",
                 "start_look_at()", "", "end_look_at()" )
 
+
+NTF_NON_SUPPORTED_PLANE = 1
+NTF_NO_RNW_SET = 2
 
 ---------------------------------------------------
 -- Init. XPLM lib.
@@ -78,24 +76,24 @@ void XPLMReadCameraPosition(XPLMCameraPosition_t * outCamPos);
 function findDataRef(dataRefName)
   if XPLM then
     return XPLM.XPLMFindDataRef(dataRefName)
-    end
+  end
   return nil
 end
 
-if (findDataRef("laminar/B738/fms/dest_runway_start_lat")) then
+supported_plane = false
+if (findDataRef("laminar/B738/fms/dest_runway_start_lat") ~= nil ) then
+  supported_plane = true
   dataref("dst_rnw_lat", "laminar/B738/fms/dest_runway_start_lat", "readonly")
   dataref("dst_rnw_lon", "laminar/B738/fms/dest_runway_start_lon", "readonly")
-  dataref("dst_rnw_alt", "laminar/B738/fms/des_icao_alt", "readonly")
+  dataref("dst_rnw_alt", "laminar/B738/fms/dest_runway_alt", "readonly")
+  dataref("dst_icao", "laminar/B738/fms/dest_icao", "readonly")
 end
 
 lookAtRnw = false
 heading_save = -1
 pitch_save = -1
--- pilot_heading_save = -1
--- pilot_pitch = -1
-pilot_x_w = -1
-pilot_y_w = -1
-pilot_z_w = -1
+zoom_save = -1
+
 
 function rotate_x(x, y, z, a)
   ret_y = y * math.cos(a) + z * math.sin(a)
@@ -155,24 +153,47 @@ end
 
 function look_at_rnw()
   if (( view_type == 1026 ) and lookAtRnw) then
-    local camera_pos = ffi.new("XPLMCameraPosition_t")
-    local rnw_x, rnw_y, rnw_z = get_rwn_pos()
-    XPLM.XPLMReadCameraPosition(camera_pos)
-    local pilot_x, pilot_y, pilot_z, pilot_hdg, pilot_pitch = get_pilots_head() 
-    local l_x, l_y, l_z = local2plane(rnw_x,  rnw_y,  rnw_z, plane_heading, -plane_pitch, plane_roll, camera_pos.x, camera_pos.y, camera_pos.z)
-    local l_hdg, l_pitch, l_dst = get_hdg_dst(pilot_x, pilot_y, pilot_z, l_x, l_y, l_z)
-    set_pilots_head(pilot_x, pilot_y, pilot_z, l_hdg, l_pitch)
+    if (not supported_plane) then
+      show_notification(NTF_NON_SUPPORTED_PLANE)
+    elseif dst_rnw_lat == 0 then
+      show_notification(NTF_NO_RNW_SET)
+    else
+      local camera_pos = ffi.new("XPLMCameraPosition_t")
+      local rnw_x, rnw_y, rnw_z = get_rwn_pos()
+      XPLM.XPLMReadCameraPosition(camera_pos)
+      local pilot_x, pilot_y, pilot_z, pilot_hdg, pilot_pitch = get_pilots_head() 
+      local l_x, l_y, l_z = local2plane(rnw_x,  rnw_y,  rnw_z, plane_heading, -plane_pitch, plane_roll, camera_pos.x, camera_pos.y, camera_pos.z)
+      local l_hdg, l_pitch, _ = get_hdg_dst(pilot_x, pilot_y, pilot_z, l_x, l_y, l_z)
+      set_pilots_head(pilot_x, pilot_y, pilot_z, l_hdg, l_pitch)
+    end
   end
 end
 
-function  start_look_at()
-  pilot_x, pilot_y, pilot_z, heading_save, pitch_save = get_pilots_head()
+
+function show_notification(nid)
+  if nid == NTF_NON_SUPPORTED_PLANE then
+    draw_string(5, SCREEN_HIGHT - 10, "This plane is not Zibo 737-800", "red")
+  end
+  if nid == NTF_NO_RNW_SET then
+    draw_string(5, SCREEN_HIGHT - 10, "Set destanation aiprort/runway in FMS", "red")
+  end
+end
+
+function start_look_at()
+  if supported_plane then
+    local camera_pos = ffi.new("XPLMCameraPosition_t")
+    XPLM.XPLMReadCameraPosition(camera_pos)
+    _, _, _, heading_save, pitch_save = get_pilots_head()
+    zoom_save = camera_pos.zoom
+  end
   lookAtRnw = true
 end
 
-function  end_look_at()
-  local pilot_x, pilot_y, pilot_z, heading, pitch = get_pilots_head()
-  set_pilots_head(pilot_x, pilot_y, pilot_z, heading_save, pitch_save)
+function end_look_at()
+  if supported_plane then
+    local pilot_x, pilot_y, pilot_z, heading, pitch = get_pilots_head()
+    set_pilots_head(pilot_x, pilot_y, pilot_z, heading_save, pitch_save)
+  end
   lookAtRnw = false
 end
 
