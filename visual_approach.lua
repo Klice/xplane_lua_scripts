@@ -14,6 +14,17 @@ create_command( "FlyWithLua/VisualApproach/LookAtRnw", "Look at RNW",
 NTF_NON_SUPPORTED_PLANE = 1
 NTF_NO_RNW_SET = 2
 
+CAMERA_TIMER = -1
+CAMERA_HEADING_START = 0
+CAMERA_HEADING_END = 0
+CAMERA_PITCH_START = 0
+CAMERA_PITCH_END = 0
+CAMERA_TRANS_FRAMES = 5
+
+
+NOTIFICATION_MSG = ""
+NOTIFICATION_COLOR = ""
+NOTIFICATION_TIMER = 0
 ---------------------------------------------------
 -- Init. XPLM lib.
 ---------------------------------------------------
@@ -94,6 +105,44 @@ heading_save = -1
 pitch_save = -1
 zoom_save = -1
 
+function control_camera()
+  if lookAtRnw or CAMERA_TIMER >= 0 then
+    local pilot_x, pilot_y, pilot_z, _, _ = get_pilots_head() 
+    if CAMERA_TIMER >= 0 then
+      local d_h = math.max(CAMERA_HEADING_START, CAMERA_HEADING_END) - math.min(CAMERA_HEADING_START, CAMERA_HEADING_END)
+      if lookAtRnw then
+        CAMERA_HEADING_END, CAMERA_PITCH_END = get_pilot_hdg_pitch()
+      end
+      if d_h > 180 then
+        if CAMERA_HEADING_START < CAMERA_HEADING_END then
+          CAMERA_HEADING_START = 360 + CAMERA_HEADING_START
+        else
+          CAMERA_HEADING_START = CAMERA_HEADING_START - 360
+        end
+      end
+
+      local time =  1 - CAMERA_TIMER / CAMERA_TRANS_FRAMES
+      local new_heading = CAMERA_HEADING_START + (CAMERA_HEADING_END - CAMERA_HEADING_START) * time
+      local new_pitch = CAMERA_PITCH_START + (CAMERA_PITCH_END - CAMERA_PITCH_START) * time
+      if new_heading < 0 then
+        new_heading = 360 + new_heading
+      end
+      if new_heading > 360 then
+        new_heading = new_heading - 360
+      end
+
+      set_pilots_head(pilot_x, pilot_y, pilot_z, new_heading, new_pitch)
+      CAMERA_TIMER = CAMERA_TIMER - 1 
+    else
+      local hdg, pitch = get_pilot_hdg_pitch()
+      set_pilots_head(pilot_x, pilot_y, pilot_z, hdg, pitch)
+    end
+  end
+  if NOTIFICATION_TIMER > 0 then
+    draw_string(5, SCREEN_HIGHT - 10, NOTIFICATION_MSG, NOTIFICATION_COLOR)
+    NOTIFICATION_TIMER = NOTIFICATION_TIMER - 1
+  end
+end
 
 function rotate_x(x, y, z, a)
   ret_y = y * math.cos(a) + z * math.sin(a)
@@ -151,50 +200,65 @@ function get_hdg_dst(c_x, c_y, c_z, r_x, r_y, r_z)
   return hdg, pitch, dst
 end
 
-function look_at_rnw()
-  if (( view_type == 1026 ) and lookAtRnw) then
-    if (not supported_plane) then
-      show_notification(NTF_NON_SUPPORTED_PLANE)
-    elseif dst_rnw_lat == 0 then
-      show_notification(NTF_NO_RNW_SET)
-    else
-      local camera_pos = ffi.new("XPLMCameraPosition_t")
-      local rnw_x, rnw_y, rnw_z = get_rwn_pos()
-      XPLM.XPLMReadCameraPosition(camera_pos)
-      local pilot_x, pilot_y, pilot_z, pilot_hdg, pilot_pitch = get_pilots_head() 
-      local l_x, l_y, l_z = local2plane(rnw_x,  rnw_y,  rnw_z, plane_heading, -plane_pitch, plane_roll, camera_pos.x, camera_pos.y, camera_pos.z)
-      local l_hdg, l_pitch, _ = get_hdg_dst(pilot_x, pilot_y, pilot_z, l_x, l_y, l_z)
-      set_pilots_head(pilot_x, pilot_y, pilot_z, l_hdg, l_pitch)
-    end
-  end
+function get_pilot_hdg_pitch()
+    local camera_pos = ffi.new("XPLMCameraPosition_t")
+    local rnw_x, rnw_y, rnw_z = get_rwn_pos()
+    XPLM.XPLMReadCameraPosition(camera_pos)
+    local pilot_x, pilot_y, pilot_z, pilot_hdg, pilot_pitch = get_pilots_head() 
+    local l_x, l_y, l_z = local2plane(rnw_x,  rnw_y,  rnw_z, plane_heading, -plane_pitch, plane_roll, camera_pos.x, camera_pos.y, camera_pos.z)
+    local l_hdg, l_pitch, _ = get_hdg_dst(pilot_x, pilot_y, pilot_z, l_x, l_y, l_z)
+    return l_hdg, l_pitch
 end
 
+function check_support()
+  if ( view_type == 1026 ) then
+    if (not supported_plane) then
+      show_notification(NTF_NON_SUPPORTED_PLANE)
+      return false
+    elseif dst_rnw_lat == 0 then
+      show_notification(NTF_NO_RNW_SET)
+      return false
+    end
+    return true
+  end
+  return false
+end
+
+function set_notification(msg, color)
+  NOTIFICATION_MSG = msg
+  NOTIFICATION_COLOR = color
+  NOTIFICATION_TIMER = 90
+end
 
 function show_notification(nid)
   if nid == NTF_NON_SUPPORTED_PLANE then
-    draw_string(5, SCREEN_HIGHT - 10, "This plane is not Zibo 737-800", "red")
+    set_notification("This plane is not Zibo 737-800", "red")
   end
   if nid == NTF_NO_RNW_SET then
-    draw_string(5, SCREEN_HIGHT - 10, "Set destanation aiprort/runway in FMS", "red")
+    set_notification("Set destanation aiprort/runway in FMS", "red")
   end
 end
 
 function start_look_at()
-  if supported_plane then
-    local camera_pos = ffi.new("XPLMCameraPosition_t")
-    XPLM.XPLMReadCameraPosition(camera_pos)
+  if check_support() then
     _, _, _, heading_save, pitch_save = get_pilots_head()
-    zoom_save = camera_pos.zoom
+    CAMERA_TIMER = CAMERA_TRANS_FRAMES
+    CAMERA_HEADING_START = heading_save
+    CAMERA_PITCH_START = pitch_save
+    lookAtRnw = true
   end
-  lookAtRnw = true
 end
 
 function end_look_at()
-  if supported_plane then
-    local pilot_x, pilot_y, pilot_z, heading, pitch = get_pilots_head()
-    set_pilots_head(pilot_x, pilot_y, pilot_z, heading_save, pitch_save)
+  if lookAtRnw then
+    CAMERA_TIMER = CAMERA_TRANS_FRAMES
+    local _, _, _, hdp, picth = get_pilots_head()
+    CAMERA_HEADING_START = hdp
+    CAMERA_PITCH_START = picth
+    CAMERA_HEADING_END = heading_save
+    CAMERA_PITCH_END = pitch_save
+    lookAtRnw = false
   end
-  lookAtRnw = false
 end
 
-do_every_draw("look_at_rnw()")
+do_every_draw("control_camera()")
